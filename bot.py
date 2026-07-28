@@ -1,7 +1,7 @@
 import asyncio
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
@@ -14,14 +14,30 @@ from aiogram.types import (
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from aiohttp import web
 
+from apscheduler.jobstores.sqlalchemy import SQLAlchemyJobStore
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 from config import BOT_TOKEN, ADMIN_IDS, WEBHOOK_URL, WEBHOOK_SECRET, HOST, PORT
-from db import SessionLocal, init_db, ContentGroup, MediaItem
+from db import SessionLocal, engine, init_db, ContentGroup, MediaItem
 
 bot = Bot(BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
-scheduler = AsyncIOScheduler(timezone="UTC")
+scheduler = AsyncIOScheduler(
+    timezone="UTC",
+    # Jobs live in the same SQLite file as the content, so schedules
+    # survive restarts instead of dying with the process.
+    jobstores={"default": SQLAlchemyJobStore(engine=engine)},
+    job_defaults={
+        # Runs missed while the process was down collapse into one, dated at
+        # the most recent time the job was due, and it is delivered only if
+        # that time is under an hour old. So a brief restart still posts,
+        # while a long outage waits for the next interval instead of dumping
+        # a backlog into the channel.
+        "coalesce": True,
+        "misfire_grace_time": 3600,
+        "max_instances": 1,
+    },
+)
 
 CURRENT_GROUP = {}  # admin_id -> group_id
 STATE = {}          # admin_id -> state dict
@@ -41,26 +57,71 @@ def keyboard_from_json(raw: str | None):
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-async def schedule_group(group_id: int):
+def job_id(group_id: int) -> str:
+    return f"group_{group_id}"
+
+
+def record_next_run(group_id: int):
+    """Mirror the job's next fire time onto the group for display."""
+    job = scheduler.get_job(job_id(group_id))
+    next_run = job.next_run_time if job else None
+
     db = SessionLocal()
     try:
         g = db.query(ContentGroup).filter(ContentGroup.id == group_id).first()
-        if not g or not g.interval_seconds:
+        if not g:
             return
-        g.next_run_at = datetime.utcnow() + timedelta(seconds=g.interval_seconds)
+        # The column is naive, and the scheduler runs in UTC.
+        g.next_run_at = next_run.replace(tzinfo=None) if next_run else None
         db.commit()
-        next_run_at = g.next_run_at
     finally:
         db.close()
 
+
+def schedule_group(group_id: int, interval_seconds: int):
+    """Register the recurring post job for a group, replacing any existing one.
+
+    A recurring trigger keeps reposting on its own, so an interrupted run
+    cannot break the chain the way self-rescheduling one-shot jobs did.
+    """
     scheduler.add_job(
         post_group,
-        "date",
-        run_date=next_run_at,
+        "interval",
+        seconds=interval_seconds,
+        next_run_time=datetime.now(timezone.utc) + timedelta(seconds=interval_seconds),
         args=[group_id],
-        id=f"group_{group_id}_{next_run_at.timestamp()}",
-        replace_existing=False,
+        id=job_id(group_id),
+        replace_existing=True,
     )
+    record_next_run(group_id)
+
+
+def resync_schedules():
+    """Re-register jobs for queued groups that have none.
+
+    Covers groups queued before the jobstore was persistent, and any case
+    where a group is left queued with nothing driving it.
+    """
+    db = SessionLocal()
+    try:
+        pending = [
+            (g.id, g.interval_seconds)
+            for g in db.query(ContentGroup)
+            .filter(ContentGroup.status == "queued")
+            .filter(ContentGroup.interval_seconds.isnot(None))
+            .all()
+        ]
+    finally:
+        db.close()
+
+    restored = 0
+    for gid, interval in pending:
+        if not scheduler.get_job(job_id(gid)):
+            schedule_group(gid, interval)
+            restored += 1
+
+    live = len([j for j in scheduler.get_jobs() if j.id.startswith("group_")])
+    logging.info("Schedules active: %d (%d restored)", live, restored)
 
 
 async def post_group(group_id: int):
@@ -125,8 +186,10 @@ async def post_group(group_id: int):
             if kb:
                 await bot.send_message(target_chat_id, "🔘 Buttons:", reply_markup=kb)
 
+    # The recurring trigger advances itself; just refresh the stored
+    # next-run time for display.
     if interval_seconds:
-        await schedule_group(group_id)
+        record_next_run(group_id)
 
 
 def admin_main_menu():
@@ -395,11 +458,12 @@ async def cb_schedule(call: CallbackQuery):
         if not g.interval_seconds:
             return await call.answer("Set an interval first.", show_alert=True)
         g.status = "queued"
+        interval_seconds = g.interval_seconds
         db.commit()
     finally:
         db.close()
 
-    await schedule_group(gid)
+    schedule_group(gid, interval_seconds)
     await call.answer("Scheduled.", show_alert=True)
 
 
@@ -525,6 +589,7 @@ async def handle_state(message: Message):
 async def on_startup(app):
     init_db()
     scheduler.start()
+    resync_schedules()
     if WEBHOOK_URL:
         await bot.set_webhook(WEBHOOK_URL, secret_token=WEBHOOK_SECRET or None)
 
@@ -537,6 +602,7 @@ async def on_shutdown(app):
 async def run_polling():
     init_db()
     scheduler.start()
+    resync_schedules()
     # Clear any webhook left over from a previous webhook-mode deployment,
     # since Telegram refuses to serve getUpdates while one is registered.
     await bot.delete_webhook(drop_pending_updates=True)
