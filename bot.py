@@ -1,3 +1,4 @@
+import asyncio
 import json
 from datetime import datetime, timedelta
 
@@ -526,7 +527,19 @@ async def on_shutdown(app):
     scheduler.shutdown(wait=False)
 
 
-def main():
+async def run_polling():
+    init_db()
+    scheduler.start()
+    # Clear any webhook left over from a previous webhook-mode deployment,
+    # since Telegram refuses to serve getUpdates while one is registered.
+    await bot.delete_webhook(drop_pending_updates=True)
+    try:
+        await dp.start_polling(bot)
+    finally:
+        scheduler.shutdown(wait=False)
+
+
+def run_webhook():
     app = web.Application()
     SimpleRequestHandler(
         dp, bot, secret_token=WEBHOOK_SECRET or None
@@ -537,6 +550,15 @@ def main():
     app.on_shutdown.append(on_shutdown)
 
     web.run_app(app, host=HOST, port=PORT)
+
+
+def main():
+    # Webhook mode needs a public HTTPS URL. Without one, fall back to
+    # polling, which works anywhere with only a bot token.
+    if WEBHOOK_URL:
+        run_webhook()
+    else:
+        asyncio.run(run_polling())
 
 
 if __name__ == "__main__":
