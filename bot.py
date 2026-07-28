@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 from datetime import datetime, timedelta
 
 from aiogram import Bot, Dispatcher, F
@@ -559,11 +560,20 @@ def run_webhook():
 
 
 def main():
+    # No timestamp in the format: journald and most log collectors add
+    # their own.
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(levelname)s %(name)s: %(message)s",
+    )
+
     # Webhook mode needs a public HTTPS URL. Without one, fall back to
     # polling, which works anywhere with only a bot token.
     if WEBHOOK_URL:
+        logging.info("Starting in webhook mode on %s:%s", HOST, PORT)
         run_webhook()
     else:
+        logging.info("Starting in polling mode for %d admin(s)", len(ADMIN_IDS))
         asyncio.run(run_polling())
 
 
