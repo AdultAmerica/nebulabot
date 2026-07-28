@@ -56,6 +56,21 @@ sudo systemctl restart nebulabot
 
 The unit restarts the bot on crash and starts it on boot.
 
+## Scheduling
+
+Setting an interval and pressing **Schedule** registers a recurring job that
+reposts the group at that interval. Jobs are stored in `bot.db` alongside the
+content, so they survive restarts; on startup any group left `queued` without
+a live job is re-registered.
+
+Runs missed while the process was down are collapsed into one, dated at the
+most recent time the job was due, and delivered only if that time is under an
+hour old. A brief restart therefore still posts, while a long outage waits for
+the next interval rather than flushing a backlog.
+
+To change an interval, set the new value and press **Schedule** again — that
+replaces the existing job.
+
 ## Deploying to a container host
 
 A `Dockerfile` is included and takes precedence over buildpack detection.
