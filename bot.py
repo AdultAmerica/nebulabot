@@ -95,18 +95,24 @@ async def post_group(group_id: int):
         media_group = []
 
         for idx, (file_id, media_type) in enumerate(chunk):
-            if media_type == "photo":
-                m = InputMediaPhoto(media=file_id)
-            else:
-                m = InputMediaVideo(media=file_id)
+            # These are frozen pydantic models, so the caption has to be
+            # supplied at construction rather than assigned afterwards.
+            fields = {"media": file_id}
 
             # Caption only on first item of first chunk
             if chunk_index == 0 and idx == 0 and caption:
                 if total_chunks > 1:
-                    m.caption = f"{caption}\n\n<b>Part {chunk_index + 1}/{total_chunks}</b>"
+                    fields["caption"] = (
+                        f"{caption}\n\n<b>Part {chunk_index + 1}/{total_chunks}</b>"
+                    )
                 else:
-                    m.caption = caption
-                m.parse_mode = ParseMode.HTML
+                    fields["caption"] = caption
+                fields["parse_mode"] = ParseMode.HTML
+
+            if media_type == "photo":
+                m = InputMediaPhoto(**fields)
+            else:
+                m = InputMediaVideo(**fields)
 
             media_group.append(m)
 
