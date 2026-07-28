@@ -1,0 +1,23 @@
+[Unit]
+Description=NebulaBot Telegram bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nebulabot
+WorkingDirectory=/opt/nebulabot
+EnvironmentFile=/opt/nebulabot/.env
+ExecStart=/opt/nebulabot/.venv/bin/python bot.py
+Restart=always
+RestartSec=5
+
+# The bot only needs its own directory writable (for bot.db).
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/nebulabot
+
+[Install]
+WantedBy=multi-user.target
