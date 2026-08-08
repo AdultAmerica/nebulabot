@@ -189,19 +189,18 @@ def buttons_view(group_id: int):
         placement = (
             "✅ Attached directly to the post — one message, buttons included."
         )
-    elif group.buttons_attach is not False:
+    elif group.buttons_attach:
         placement = (
-            f"✅ Attached to the post. Telegram allows no keyboard on an album, "
-            f"so the first item is sent on its own carrying the caption and "
-            f"buttons, and the other {media - 1} follow as an album beneath.\n\n"
-            f"For a <b>single</b> post with buttons, keep just one photo or "
-            f"video in the group."
+            f"The first item is sent on its own carrying the caption and "
+            f"buttons; the other {media - 1} follow as an album beneath."
         )
     else:
         placement = (
-            "⚠️ Sent underneath in their own message, with the caption, because "
-            "<b>Buttons on media</b> is off and Telegram allows no keyboard on "
-            "an album."
+            f"The {media} items go out as one album, then the caption and "
+            f"buttons follow in a single message underneath.\n\n"
+            f"Telegram allows no keyboard on an album, so a group with several "
+            f"items is always two messages. Keep <b>one</b> photo or video in "
+            f"the group if you want a single self-contained post."
         )
 
     text = (
@@ -263,8 +262,9 @@ def options_view(group_id: int):
         "🛡 <b>Protect</b> — block forwarding and saving.\n"
         "📌 <b>Pin</b> — pin the first message of each post.\n"
         "🔀 <b>Shuffle</b> — reorder media on every run.\n"
-        "🔘 <b>Buttons on media</b> — keep the keyboard attached to a media "
-        "post instead of a message below it.\n"
+        "🔘 <b>Buttons</b> — <i>below album</i> keeps the album whole and puts "
+        "the caption and buttons in one message under it; <i>on first item</i> "
+        "peels the first item off to carry them instead.\n"
         "🔁 <b>Rotate targets</b> — one target per run instead of all.\n"
         "🔔 <b>Alerts</b> — DM you when a scheduled post fails.\n"
         "🧹 <b>Auto-delete</b> — remove the post after a delay.\n"

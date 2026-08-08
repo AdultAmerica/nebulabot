@@ -28,6 +28,11 @@ def _flag(value) -> str:
     return "✅" if value else "❌"
 
 
+def _button_layout(group) -> str:
+    """Neither state is 'off', so name the layout rather than tick a box."""
+    return "on first item" if group.buttons_attach else "below album"
+
+
 # --------------------------------------------------------------------------
 # Top level
 # --------------------------------------------------------------------------
@@ -147,8 +152,7 @@ def buttons_menu(group) -> InlineKeyboardMarkup:
     return _rows(
         *rows,
         [btn("➕ Add button", f"g:{gid}:addbtn"), btn("🧩 Bulk edit", f"g:{gid}:bulkbtn")],
-        [btn(f"🔘 Buttons on media {_flag(group.buttons_attach)}",
-             f"g:{gid}:opt:buttons_attach:buttons")],
+        [btn(f"🔘 Buttons: {_button_layout(group)}", f"g:{gid}:opt:buttons_attach:buttons")],
         [btn("🧹 Clear", f"g:{gid}:clearbtn")],
         back_to(f"g:{gid}:menu"),
     )
@@ -198,8 +202,7 @@ def options_menu(group) -> InlineKeyboardMarkup:
          btn(f"🛡 Protect {_flag(group.protect_content)}", f"g:{gid}:opt:protect_content")],
         [btn(f"📌 Pin {_flag(group.pin_post)}", f"g:{gid}:opt:pin_post"),
          btn(f"🔀 Shuffle {_flag(group.shuffle)}", f"g:{gid}:opt:shuffle")],
-        [btn(f"🔘 Buttons on media {_flag(group.buttons_attach)}",
-             f"g:{gid}:opt:buttons_attach")],
+        [btn(f"🔘 Buttons: {_button_layout(group)}", f"g:{gid}:opt:buttons_attach")],
         [btn(f"🔁 Rotate targets {_flag(group.rotate_targets)}", f"g:{gid}:opt:rotate_targets"),
          btn(f"🔔 Alerts {_flag(group.notify_owner)}", f"g:{gid}:opt:notify_owner")],
         [btn(f"🧹 Auto-delete: {format_duration(group.delete_after)}", f"g:{gid}:set:delafter"),

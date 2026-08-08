@@ -89,10 +89,11 @@ class ContentGroup(Base):
     silent = Column(Boolean, default=False)
     protect_content = Column(Boolean, default=False)
     pin_post = Column(Boolean, default=False)
-    # Telegram allows no keyboard on an album. With this on, a group that has
-    # buttons sends its first item alone so the buttons ride on a real media
-    # post; with it off the album stays whole and the buttons follow beneath.
-    buttons_attach = Column(Boolean, default=True)
+    # Telegram allows no keyboard on an album. By default the album is kept
+    # whole and the caption travels with the buttons in one message beneath
+    # it. Turning this on instead peels the first item off to carry them, so
+    # the keyboard sits on a media post at the cost of splitting the album.
+    buttons_attach = Column(Boolean, default=False)
     delete_after = Column(Integer)       # seconds; None = keep forever
     notify_owner = Column(Boolean, default=True)
 
@@ -235,6 +236,15 @@ class AdminUser(Base):
     created_at = Column(DateTime, default=utcnow)
 
 
+class SchemaMeta(Base):
+    """Marks one-off data fix-ups so they never run twice."""
+
+    __tablename__ = "schema_meta"
+
+    key = Column(String, primary_key=True)
+    applied_at = Column(DateTime, default=utcnow)
+
+
 class UserPrefs(Base):
     __tablename__ = "user_prefs"
 
@@ -297,7 +307,27 @@ def _backfill_targets():
         db.close()
 
 
+def _once(key: str, statement: str):
+    """Apply a data fix-up exactly once, ever, on this database."""
+    db = SessionLocal()
+    try:
+        if db.get(SchemaMeta, key):
+            return
+        result = db.execute(text(statement))
+        db.add(SchemaMeta(key=key))
+        db.commit()
+        if result.rowcount:
+            log.info("Applied one-time migration %s to %d row(s)", key, result.rowcount)
+    finally:
+        db.close()
+
+
 def init_db():
     Base.metadata.create_all(bind=engine)
     _migrate()
     _backfill_targets()
+    # The first release of this column defaulted to splitting the album so the
+    # keyboard could ride on a media post. Keeping the album intact and putting
+    # the caption with the buttons underneath reads better, so existing groups
+    # are moved over rather than left on a default nobody chose.
+    _once("buttons_below_album_default", "UPDATE content_groups SET buttons_attach = 0")
