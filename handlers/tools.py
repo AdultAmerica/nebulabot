@@ -21,7 +21,9 @@ from db import (
     SessionLocal, Target,
 )
 from handlers.ui import Form, ask, show_view, swap
-from scheduling import broadcast, scheduler, sync_group, sync_queue
+from scheduling import (
+    album_keyboard_supported, broadcast, scheduler, sync_group, sync_queue,
+)
 from utils import esc, format_duration, rich_text, truncate
 
 log = logging.getLogger(__name__)
@@ -129,6 +131,9 @@ def _health_text(user_id: int) -> str:
     finally:
         db.close()
 
+    album_kb = {True: "yes", False: "no", None: "not yet probed"}[
+        album_keyboard_supported()
+    ]
     uptime = int(time.time() - STARTED_AT)
     return (
         "❤️ <b>Health</b>\n\n"
@@ -137,6 +142,7 @@ def _health_text(user_id: int) -> str:
         f"Uptime: {format_duration(uptime)}\n"
         f"Scheduler: {'running' if scheduler.running else 'stopped'} · "
         f"{len(scheduler.get_jobs())} job(s)\n"
+        f"Keyboard on albums: {album_kb}\n"
         f"Server time: {esc(datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC'))}\n"
         f"Your time: {esc(datetime.now(tz).strftime('%Y-%m-%d %H:%M %Z'))}\n\n"
         + " · ".join(f"{key}: <b>{value}</b>" for key, value in counts.items())

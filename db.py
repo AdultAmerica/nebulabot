@@ -236,6 +236,38 @@ class AdminUser(Base):
     created_at = Column(DateTime, default=utcnow)
 
 
+class AppState(Base):
+    """Small key/value store for things the bot learns at runtime."""
+
+    __tablename__ = "app_state"
+
+    key = Column(String, primary_key=True)
+    value = Column(String)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow)
+
+
+def get_state(key: str) -> str | None:
+    db = SessionLocal()
+    try:
+        row = db.get(AppState, key)
+        return row.value if row else None
+    finally:
+        db.close()
+
+
+def set_state(key: str, value: str) -> None:
+    db = SessionLocal()
+    try:
+        row = db.get(AppState, key)
+        if row:
+            row.value = value
+        else:
+            db.add(AppState(key=key, value=value))
+        db.commit()
+    finally:
+        db.close()
+
+
 class SchemaMeta(Base):
     """Marks one-off data fix-ups so they never run twice."""
 

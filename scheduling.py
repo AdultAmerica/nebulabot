@@ -32,7 +32,8 @@ import config
 from db import (
     ALBUM_FAMILIES, DONE, DRAFT, KIND_CRON, KIND_DAILY, KIND_INTERVAL,
     KIND_ONCE, POSTED, QUEUED, ContentGroup, MediaItem, PostLog,
-    Queue, QueueItem, SessionLocal, Target, engine, utcnow,
+    Queue, QueueItem, SessionLocal, Target, engine, get_state, set_state,
+    utcnow,
 )
 from utils import esc, parse_time_list
 
@@ -69,6 +70,53 @@ PARSE_MODES = {
 
 # Telegram accepts no caption on these, so text has to travel separately.
 NO_CAPTION_TYPES = ("video_note", "sticker")
+
+# `sendMediaGroup` takes no reply_markup, but a keyboard can be edited onto a
+# message afterwards — and on an album member that renders beneath the whole
+# album, giving the single post everyone actually wants. Whether Telegram
+# permits it is a property of the API, not of any one chat, so the answer is
+# probed on the first real post and remembered from then on.
+ALBUM_KEYBOARD_KEY = "album_keyboard_supported"
+_album_keyboard: bool | None = None
+_album_keyboard_loaded = False
+
+
+def album_keyboard_supported() -> bool | None:
+    """True or False once probed, None while still unknown."""
+    global _album_keyboard, _album_keyboard_loaded
+    if not _album_keyboard_loaded:
+        stored = get_state(ALBUM_KEYBOARD_KEY)
+        _album_keyboard = {"yes": True, "no": False}.get(stored)
+        _album_keyboard_loaded = True
+    return _album_keyboard
+
+
+def _record_album_keyboard(supported: bool):
+    global _album_keyboard, _album_keyboard_loaded
+    _album_keyboard, _album_keyboard_loaded = supported, True
+    set_state(ALBUM_KEYBOARD_KEY, "yes" if supported else "no")
+
+
+async def _attach_album_keyboard(chat_id, message_id: int, markup) -> bool:
+    """Try to hang the keyboard on the album itself. True if Telegram allowed it."""
+    try:
+        await _bot.edit_message_reply_markup(
+            chat_id=chat_id, message_id=message_id, reply_markup=markup,
+        )
+    except TelegramBadRequest as exc:
+        # A flat refusal is about the API, not this chat, so stop trying.
+        log.info("Telegram will not put a keyboard on an album (%s); buttons "
+                 "will travel in their own message from now on", exc)
+        _record_album_keyboard(False)
+        return False
+    except (TelegramForbiddenError, TelegramNetworkError) as exc:
+        # Permissions or the network — says nothing about the API, so no verdict.
+        log.warning("Could not attach the album keyboard: %s", exc)
+        return False
+    if album_keyboard_supported() is not True:
+        log.info("Album keyboards are supported — posting albums as one message")
+    _record_album_keyboard(True)
+    return True
 
 _INPUT_MEDIA = {
     "photo": InputMediaPhoto,
@@ -464,10 +512,13 @@ async def _deliver_to_chat(group: ContentGroup, items: list[tuple], chat_id: str
     # A lone item carries the caption and the keyboard itself — the tidiest
     # possible post, and the only shape that is ever a single message.
     single = hero is None and len(batches) == 1 and batches[0][0] == "solo"
-    # If the buttons still have to follow in their own message, the caption
-    # goes with them rather than onto the album; otherwise that trailing
-    # message would be an empty bubble.
-    hold_caption = markup_pending and not single
+    # Withhold the caption only when a trailing message is already certain.
+    # While an album keyboard is still possible, the caption belongs on the
+    # album, because that is where it ends up if the attempt succeeds.
+    hold_caption = (
+        markup_pending and not single and album_keyboard_supported() is False
+    )
+    last_media_id: int | None = None
 
     for kind, batch in batches:
         if kind == "solo":
@@ -479,6 +530,7 @@ async def _deliver_to_chat(group: ContentGroup, items: list[tuple], chat_id: str
                 markup if (single and markup_pending) else None, group,
             )
             message_ids.append(sent.message_id)
+            last_media_id = sent.message_id
             if give_caption and media_type not in NO_CAPTION_TYPES:
                 caption_pending = False
             if single and markup_pending:
@@ -500,8 +552,15 @@ async def _deliver_to_chat(group: ContentGroup, items: list[tuple], chat_id: str
                 protect_content=bool(group.protect_content),
             )
             message_ids.extend(m.message_id for m in sent)
+            last_media_id = sent[-1].message_id if sent else last_media_id
             if not hold_caption:
                 caption_pending = False
+
+    # The one-post outcome: hang the keyboard on the last media message, which
+    # for an album puts it under the whole block.
+    if markup_pending and last_media_id and album_keyboard_supported() is not False:
+        if await _attach_album_keyboard(chat_id, last_media_id, markup):
+            markup_pending = False
 
     if markup_pending or caption_pending:
         sent = await _call(

@@ -55,6 +55,12 @@ class FakeBot:
     async def delete_message(self, chat_id, message_id):
         SENT.append(("delete", chat_id, message_id))
 
+    # Stands in for a Telegram that allows a keyboard to be edited onto an
+    # album member. The refusing variant is defined at the test that needs it.
+    async def edit_message_reply_markup(self, chat_id, message_id, reply_markup):
+        SENT.append(("keyboard", chat_id, message_id, None, bool(reply_markup)))
+        return True
+
 
 scheduling.attach_bot(FakeBot())
 
@@ -146,17 +152,45 @@ run(scheduling.post_group(gid))
 assert len(SENT) == 1 and SENT[0][0] == "photo" and SENT[0][3] == "Solo" and SENT[0][4] is True, SENT
 print("4 ok: single item carries caption and buttons directly")
 
-# --- 5. Default: album stays whole, caption + buttons in one message below ---
+# --- 5. One post: album whole, keyboard edited onto it, no trailing message ---
 SENT.clear()
 gid = make_group(caption="Album", buttons_json='[[{"text":"Go","url":"https://e.com"}]]')
 add_media(gid, [("P1", "photo"), ("P2", "photo"), ("P3", "photo")])
 add_target(gid, "-100555")
 run(scheduling.post_group(gid))
-assert [s[0] for s in SENT] == ["album", "message"], SENT
+assert [s[0] for s in SENT] == ["album", "keyboard"], SENT
 assert len(SENT[0][2]) == 3, "the album must not be split"
-assert not [c for (_, _, c) in SENT[0][2] if c], "caption belongs with the buttons"
+assert [c for (_, _, c) in SENT[0][2] if c] == ["Album"], "caption rides on the album"
+assert SENT[1][4] is True, "the edit must carry the keyboard"
+assert scheduling.album_keyboard_supported() is True
+assert not [s for s in SENT if s[0] == "message"], "nothing trails a successful attach"
+print("5 ok: album keeps caption and gains the keyboard — a single post")
+
+# --- 5a. When Telegram refuses, fall back and never ask again -------------
+from aiogram.exceptions import TelegramBadRequest
+class NoAlbumKeyboard(FakeBot):
+    async def edit_message_reply_markup(self, chat_id, message_id, reply_markup):
+        SENT.append(("keyboard-refused", chat_id, message_id, None, False))
+        raise TelegramBadRequest(method=types.SimpleNamespace(),
+                                 message="BUTTON_TYPE_INVALID")
+scheduling._album_keyboard_loaded = False          # forget the probe
+db = SessionLocal(); db.execute(text("DELETE FROM app_state")); db.commit(); db.close()
+scheduling.attach_bot(NoAlbumKeyboard())
+SENT.clear()
+run(scheduling.post_group(gid))
+assert [s[0] for s in SENT] == ["album", "keyboard-refused", "message"], SENT
+assert scheduling.album_keyboard_supported() is False
+SENT.clear()
+run(scheduling.post_group(gid))
+# Verdict remembered: no second attempt, and the caption moves to the message.
+assert [s[0] for s in SENT] == ["album", "message"], SENT
+assert not [c for (_, _, c) in SENT[0][2] if c], "caption now travels with the buttons"
 assert SENT[1][2] == "Album" and SENT[1][4] is True, SENT[1]
-print("5 ok: album kept whole, caption and buttons together underneath")
+print("5a ok: refusal is remembered; caption moves down with the buttons")
+
+scheduling.attach_bot(FakeBot())
+scheduling._album_keyboard_loaded = False
+db = SessionLocal(); db.execute(text("DELETE FROM app_state")); db.commit(); db.close()
 
 # --- 5b. Opting in splits the first item off to carry the keyboard --------
 db = SessionLocal(); db.get(ContentGroup, gid).buttons_attach = True; db.commit(); db.close()

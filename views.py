@@ -13,7 +13,7 @@ from db import (
     POSTED, QUEUED, ContentGroup, MediaItem, PostLog, Queue, QueueItem,
     SessionLocal, Target,
 )
-from scheduling import describe_schedule, scheduler
+from scheduling import album_keyboard_supported, describe_schedule, scheduler
 from utils import esc, format_dt, format_duration, format_hhmm, truncate
 
 PAGE = kb.PAGE_SIZE
@@ -186,22 +186,35 @@ def buttons_view(group_id: int):
     media = _media_count(group.id)
 
     if media <= 1:
-        placement = (
-            "✅ Attached directly to the post — one message, buttons included."
-        )
+        placement = "✅ Attached directly to the post — one message, buttons included."
     elif group.buttons_attach:
         placement = (
             f"The first item is sent on its own carrying the caption and "
             f"buttons; the other {media - 1} follow as an album beneath."
         )
     else:
-        placement = (
-            f"The {media} items go out as one album, then the caption and "
-            f"buttons follow in a single message underneath.\n\n"
-            f"Telegram allows no keyboard on an album, so a group with several "
-            f"items is always two messages. Keep <b>one</b> photo or video in "
-            f"the group if you want a single self-contained post."
-        )
+        supported = album_keyboard_supported()
+        if supported is True:
+            placement = (
+                f"✅ All {media} items go out as one album with the caption, and "
+                f"the buttons are attached to the album itself. A single post."
+            )
+        elif supported is None:
+            placement = (
+                f"All {media} items go out as one album. The bot will try to "
+                f"attach the buttons to the album itself — if Telegram allows "
+                f"it, that is a single post; if not, they follow in a message "
+                f"underneath and it will stop trying.\n\n"
+                f"Press 👁 <b>Preview</b> to find out."
+            )
+        else:
+            placement = (
+                f"The {media} items go out as one album, then the caption and "
+                f"buttons follow in a single message underneath.\n\n"
+                f"Telegram refused to put a keyboard on an album for this bot, "
+                f"so several items is always two messages. Keep <b>one</b> "
+                f"photo or video in the group for a single self-contained post."
+            )
 
     text = (
         f"🔘 <b>Buttons — {esc(group.label())}</b>\n\n"
