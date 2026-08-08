@@ -61,6 +61,10 @@ class FakeBot:
         SENT.append(("keyboard", chat_id, message_id, None, bool(reply_markup)))
         return True
 
+    async def edit_message_caption(self, chat_id, message_id, **kw):
+        SENT.append(("uncaption", chat_id, message_id, None, False))
+        return True
+
 
 scheduling.attach_bot(FakeBot())
 
@@ -178,7 +182,10 @@ db = SessionLocal(); db.execute(text("DELETE FROM app_state")); db.commit(); db.
 scheduling.attach_bot(NoAlbumKeyboard())
 SENT.clear()
 run(scheduling.post_group(gid))
-assert [s[0] for s in SENT] == ["album", "keyboard-refused", "message"], SENT
+# The caption is stripped back off the album so it can travel with the
+# buttons — the probe post looks like every post that follows it.
+assert [s[0] for s in SENT] == ["album", "keyboard-refused", "uncaption", "message"], SENT
+assert SENT[3][2] == "Album" and SENT[3][4] is True, SENT[3]
 assert scheduling.album_keyboard_supported() is False
 SENT.clear()
 run(scheduling.post_group(gid))

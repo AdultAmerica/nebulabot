@@ -118,6 +118,16 @@ async def _attach_album_keyboard(chat_id, message_id: int, markup) -> bool:
     _record_album_keyboard(True)
     return True
 
+
+async def _clear_caption(chat_id, message_id: int) -> bool:
+    """Take the caption back off a media message. True if it worked."""
+    try:
+        await _bot.edit_message_caption(chat_id=chat_id, message_id=message_id)
+    except Exception as exc:
+        log.info("Could not clear the caption on %s: %s", message_id, exc)
+        return False
+    return True
+
 _INPUT_MEDIA = {
     "photo": InputMediaPhoto,
     "video": InputMediaVideo,
@@ -519,6 +529,7 @@ async def _deliver_to_chat(group: ContentGroup, items: list[tuple], chat_id: str
         markup_pending and not single and album_keyboard_supported() is False
     )
     last_media_id: int | None = None
+    caption_message_id: int | None = None
 
     for kind, batch in batches:
         if kind == "solo":
@@ -533,6 +544,7 @@ async def _deliver_to_chat(group: ContentGroup, items: list[tuple], chat_id: str
             last_media_id = sent.message_id
             if give_caption and media_type not in NO_CAPTION_TYPES:
                 caption_pending = False
+                caption_message_id = sent.message_id
             if single and markup_pending:
                 markup_pending = False
         else:
@@ -553,6 +565,8 @@ async def _deliver_to_chat(group: ContentGroup, items: list[tuple], chat_id: str
             )
             message_ids.extend(m.message_id for m in sent)
             last_media_id = sent[-1].message_id if sent else last_media_id
+            if caption_pending and not hold_caption and sent:
+                caption_message_id = sent[0].message_id
             if not hold_caption:
                 caption_pending = False
 
@@ -561,6 +575,12 @@ async def _deliver_to_chat(group: ContentGroup, items: list[tuple], chat_id: str
     if markup_pending and last_media_id and album_keyboard_supported() is not False:
         if await _attach_album_keyboard(chat_id, last_media_id, markup):
             markup_pending = False
+        elif caption_message_id is not None and caption:
+            # The attempt failed with the caption already on the media. Take it
+            # back off so it can travel with the buttons — the same layout every
+            # later post will use, rather than a one-off empty bubble.
+            if await _clear_caption(chat_id, caption_message_id):
+                caption_pending = True
 
     if markup_pending or caption_pending:
         sent = await _call(
