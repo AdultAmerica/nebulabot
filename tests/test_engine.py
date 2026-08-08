@@ -222,6 +222,32 @@ db.close()
 assert not any(flags), flags
 print("5c ok: one-time migration flips existing groups to 'below album'")
 
+# --- 5e. One item per post: a genuine single message, items take turns ----
+SENT.clear()
+gid = make_group(caption="Promo", one_per_post=True,
+                 buttons_json='[[{"text":"Access","url":"https://e.com"}]]')
+add_media(gid, [("V1", "video"), ("V2", "video"), ("V3", "video")])
+add_target(gid, "-100ONE")
+shown = []
+for _ in range(4):
+    SENT.clear()
+    run(scheduling.post_group(gid))
+    assert len(SENT) == 1, SENT               # exactly one message, every time
+    kind, _, file_id, cap, has_kb = SENT[0]
+    assert kind == "video" and cap == "Promo" and has_kb is True, SENT[0]
+    shown.append(file_id)
+assert shown == ["V1", "V2", "V3", "V1"], shown
+print("5e ok: one item per post — single message each run, items rotate")
+
+# --- 5f. Preview shows the next item without consuming its turn -----------
+db = SessionLocal(); before = db.get(ContentGroup, gid).media_cursor; db.close()
+SENT.clear()
+run(scheduling.post_group(gid, trigger="preview", count_it=False))
+db = SessionLocal(); after = db.get(ContentGroup, gid).media_cursor; db.close()
+assert before == after, (before, after)
+assert len(SENT) == 1 and SENT[0][4] is True, SENT
+print("5f ok: preview does not advance the rotation")
+
 # --- 5d. No buttons: album keeps its caption, nothing trails ---------------
 SENT.clear()
 gid = make_group(caption="Plain")

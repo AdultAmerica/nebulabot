@@ -187,6 +187,14 @@ def buttons_view(group_id: int):
 
     if media <= 1:
         placement = "✅ Attached directly to the post — one message, buttons included."
+    elif group.one_per_post:
+        placement = (
+            f"✅ Attached directly to the post. 📮 <b>One item per post</b> is on, "
+            f"so each run sends a single item out of the {media} with the caption "
+            f"and buttons on it — one self-contained message, nothing trailing.\n\n"
+            f"The items take turns, so all {media} still get shown over "
+            f"{media} runs."
+        )
     elif group.buttons_attach:
         placement = (
             f"The first item is sent on its own carrying the caption and "
@@ -275,9 +283,11 @@ def options_view(group_id: int):
         "🛡 <b>Protect</b> — block forwarding and saving.\n"
         "📌 <b>Pin</b> — pin the first message of each post.\n"
         "🔀 <b>Shuffle</b> — reorder media on every run.\n"
-        "🔘 <b>Buttons</b> — <i>below album</i> keeps the album whole and puts "
-        "the caption and buttons in one message under it; <i>on first item</i> "
-        "peels the first item off to carry them instead.\n"
+        "📮 <b>One item per post</b> — send a single item each run instead of "
+        "the whole album. The only way to get media, caption and buttons in "
+        "one message; the items take turns.\n"
+        "🔘 <b>Buttons</b> — where the keyboard goes when the whole album is "
+        "sent at once: <i>below album</i> or <i>on first item</i>.\n"
         "🔁 <b>Rotate targets</b> — one target per run instead of all.\n"
         "🔔 <b>Alerts</b> — DM you when a scheduled post fails.\n"
         "🧹 <b>Auto-delete</b> — remove the post after a delay.\n"

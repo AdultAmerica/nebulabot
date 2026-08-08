@@ -663,7 +663,15 @@ async def post_group(group_id: int, trigger: str = "manual",
     if not items and not group.caption:
         return PostResult(0, ["nothing to post — add media or a caption"], [])
 
-    if group.shuffle:
+    if group.one_per_post and items:
+        # One item is the only shape that carries both a caption and a
+        # keyboard, so this mode walks the album a post at a time rather than
+        # sending it whole and losing the buttons to a second message.
+        index = (group.media_cursor or 0) % len(items)
+        items = [random.choice(items) if group.shuffle else items[index]]
+        if count_it:
+            _advance_media(group_id, index + 1)
+    elif group.shuffle:
         items = list(items)
         random.shuffle(items)
 
@@ -699,6 +707,17 @@ async def post_group(group_id: int, trigger: str = "manual",
 
     _finalize_run(group_id, ok_count, errors, trigger, count_it)
     return PostResult(ok_count, errors, sent)
+
+
+def _advance_media(group_id: int, next_index: int):
+    db = SessionLocal()
+    try:
+        group = db.get(ContentGroup, group_id)
+        if group:
+            group.media_cursor = next_index
+            db.commit()
+    finally:
+        db.close()
 
 
 def _advance_rotation(group_id: int, next_index: int):

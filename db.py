@@ -85,6 +85,11 @@ class ContentGroup(Base):
     shuffle = Column(Boolean, default=False)
     rotate_targets = Column(Boolean, default=False)
     rotation_index = Column(Integer, default=0)
+    # Post one media item per run instead of the whole album. Since a single
+    # item accepts a caption and a keyboard and an album accepts neither, this
+    # is the only arrangement Telegram allows to be one self-contained post.
+    one_per_post = Column(Boolean, default=False)
+    media_cursor = Column(Integer, default=0)
 
     silent = Column(Boolean, default=False)
     protect_content = Column(Boolean, default=False)
@@ -363,3 +368,13 @@ def init_db():
     # the caption with the buttons underneath reads better, so existing groups
     # are moved over rather than left on a default nobody chose.
     _once("buttons_below_album_default", "UPDATE content_groups SET buttons_attach = 0")
+    # Telegram refuses a keyboard on an album, so a group with buttons and
+    # several items cannot be one post while it sends them all at once. Those
+    # groups switch to a single item per run, which can carry both.
+    _once(
+        "one_per_post_for_button_albums",
+        "UPDATE content_groups SET one_per_post = 1 "
+        "WHERE buttons_json IS NOT NULL AND buttons_json != '' "
+        "AND id IN (SELECT group_id FROM media_items "
+        "           GROUP BY group_id HAVING COUNT(*) > 1)",
+    )

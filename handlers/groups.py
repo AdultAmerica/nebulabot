@@ -39,7 +39,7 @@ MODE_CYCLE = ["HTML", "MarkdownV2", "Markdown", "none"]
 
 TOGGLES = {
     "silent", "protect_content", "pin_post", "shuffle", "rotate_targets",
-    "notify_owner", "buttons_attach",
+    "notify_owner", "buttons_attach", "one_per_post",
 }
 
 
@@ -694,6 +694,7 @@ def _clone(group_id: int, user_id: int) -> int | None:
             shuffle=source.shuffle,
             rotate_targets=source.rotate_targets,
             buttons_attach=source.buttons_attach,
+            one_per_post=source.one_per_post,
             silent=source.silent,
             protect_content=source.protect_content,
             pin_post=source.pin_post,
