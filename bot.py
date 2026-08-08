@@ -10,6 +10,7 @@ import logging
 from aiogram import Bot, Dispatcher
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
+from aiogram.exceptions import TelegramUnauthorizedError
 from aiogram.fsm.storage.memory import MemoryStorage
 from aiogram.types import BotCommand, BotCommandScopeAllPrivateChats
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
@@ -86,6 +87,24 @@ def build_dispatcher():
     return dp
 
 
+async def verify_token():
+    """Check the token before anything else needs it.
+
+    A wrong token otherwise surfaces as a traceback from whichever call
+    happens to run first, which reads like a crash rather than the one-line
+    configuration mistake it is.
+    """
+    try:
+        me = await bot.get_me()
+    except TelegramUnauthorizedError:
+        raise SystemExit(
+            "\nTelegram rejected BOT_TOKEN.\n"
+            "Copy it again from @BotFather — it looks like 123456789:AAH… — and "
+            "check .env for stray quotes or spaces.\n"
+        )
+    log.info("Authorised as @%s (id %s)", me.username, me.id)
+
+
 async def prepare():
     """Everything that must happen before the first update is served."""
     init_db()
@@ -93,6 +112,7 @@ async def prepare():
     if not scheduler.running:
         scheduler.start()
     scheduling.resync_all()
+    await verify_token()
     try:
         await bot.set_my_commands(
             [BotCommand(command=name, description=text) for name, text in COMMANDS],
@@ -120,14 +140,18 @@ async def on_shutdown(app):
 
 
 async def run_polling():
-    await prepare()
-    # Telegram refuses getUpdates while a webhook is registered, so clear any
-    # left over from a previous webhook deployment.
-    await bot.delete_webhook(drop_pending_updates=True)
+    # Startup lives inside the try so that a failure there — a bad token, most
+    # likely — still closes the HTTP session instead of leaving aiohttp
+    # complaining about it on the way out.
     try:
+        await prepare()
+        # Telegram refuses getUpdates while a webhook is registered, so clear
+        # any left over from a previous webhook deployment.
+        await bot.delete_webhook(drop_pending_updates=True)
         await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
     finally:
-        scheduler.shutdown(wait=False)
+        if scheduler.running:
+            scheduler.shutdown(wait=False)
         await bot.session.close()
 
 
