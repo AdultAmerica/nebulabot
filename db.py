@@ -89,6 +89,10 @@ class ContentGroup(Base):
     silent = Column(Boolean, default=False)
     protect_content = Column(Boolean, default=False)
     pin_post = Column(Boolean, default=False)
+    # Telegram allows no keyboard on an album. With this on, a group that has
+    # buttons sends its first item alone so the buttons ride on a real media
+    # post; with it off the album stays whole and the buttons follow beneath.
+    buttons_attach = Column(Boolean, default=True)
     delete_after = Column(Integer)       # seconds; None = keep forever
     notify_owner = Column(Boolean, default=True)
 

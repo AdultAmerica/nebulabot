@@ -67,6 +67,9 @@ PARSE_MODES = {
     "none": None,
 }
 
+# Telegram accepts no caption on these, so text has to travel separately.
+NO_CAPTION_TYPES = ("video_note", "sticker")
+
 _INPUT_MEDIA = {
     "photo": InputMediaPhoto,
     "video": InputMediaVideo,
@@ -434,24 +437,49 @@ async def _deliver_to_chat(group: ContentGroup, items: list[tuple], chat_id: str
         )
         return [sent.message_id]
 
-    batches = _partition(items)
     caption_pending = bool(caption)
     markup_pending = markup is not None
-    # A lone item can carry both the caption and the keyboard itself, which is
-    # the tidiest possible post; anything larger needs a follow-up message
-    # because Telegram forbids keyboards on albums.
-    single = len(batches) == 1 and batches[0][0] == "solo"
+
+    # `sendMediaGroup` takes no reply_markup, so an album can never carry
+    # buttons. When a group has both, send its first item on its own — that
+    # message is a normal photo/video and does accept a keyboard, so the
+    # buttons end up attached to a real post instead of a bare bubble
+    # underneath. The remaining items follow as an album.
+    hero = None
+    if markup_pending and len(items) > 1 and group.buttons_attach is not False:
+        hero, items = items[0], items[1:]
+
+    if hero is not None:
+        file_id, media_type = hero
+        sent = await _send_solo(
+            chat_id, thread_id, media_type, file_id,
+            caption if caption_pending else None, parse_mode, markup, group,
+        )
+        message_ids.append(sent.message_id)
+        markup_pending = False
+        if media_type not in NO_CAPTION_TYPES:
+            caption_pending = False
+
+    batches = _partition(items)
+    # A lone item carries the caption and the keyboard itself — the tidiest
+    # possible post, and the only shape that is ever a single message.
+    single = hero is None and len(batches) == 1 and batches[0][0] == "solo"
+    # If the buttons still have to follow in their own message, the caption
+    # goes with them rather than onto the album; otherwise that trailing
+    # message would be an empty bubble.
+    hold_caption = markup_pending and not single
 
     for kind, batch in batches:
         if kind == "solo":
             file_id, media_type = batch[0]
+            give_caption = caption_pending and not hold_caption
             sent = await _send_solo(
                 chat_id, thread_id, media_type, file_id,
-                caption if caption_pending else None, parse_mode,
+                caption if give_caption else None, parse_mode,
                 markup if (single and markup_pending) else None, group,
             )
             message_ids.append(sent.message_id)
-            if caption_pending and media_type not in ("video_note", "sticker"):
+            if give_caption and media_type not in NO_CAPTION_TYPES:
                 caption_pending = False
             if single and markup_pending:
                 markup_pending = False
@@ -459,7 +487,7 @@ async def _deliver_to_chat(group: ContentGroup, items: list[tuple], chat_id: str
             media = []
             for index, (file_id, media_type) in enumerate(batch):
                 fields = {"media": file_id}
-                if index == 0 and caption_pending:
+                if index == 0 and caption_pending and not hold_caption:
                     fields["caption"] = caption
                     # Always explicit: omitting it would let the bot-wide HTML
                     # default apply even when the group asked for no parsing.
@@ -472,13 +500,15 @@ async def _deliver_to_chat(group: ContentGroup, items: list[tuple], chat_id: str
                 protect_content=bool(group.protect_content),
             )
             message_ids.extend(m.message_id for m in sent)
-            caption_pending = False
+            if not hold_caption:
+                caption_pending = False
 
-    if markup_pending or (caption_pending and caption):
-        text = caption if caption_pending else "⁣"  # invisible separator
+    if markup_pending or caption_pending:
         sent = await _call(
-            _bot.send_message, chat_id=chat_id, text=text, parse_mode=parse_mode,
-            message_thread_id=thread_id, reply_markup=markup,
+            _bot.send_message, chat_id=chat_id,
+            text=caption if (caption_pending and caption) else "⁣",
+            parse_mode=parse_mode, message_thread_id=thread_id,
+            reply_markup=markup if markup_pending else None,
             disable_notification=True, protect_content=bool(group.protect_content),
         )
         message_ids.append(sent.message_id)

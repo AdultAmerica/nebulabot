@@ -24,6 +24,16 @@ STATUS_TEXT = {
 }
 
 
+def _media_count(group_id: int) -> int:
+    db = SessionLocal()
+    try:
+        return db.query(func.count(MediaItem.id)).filter(
+            MediaItem.group_id == group_id
+        ).scalar() or 0
+    finally:
+        db.close()
+
+
 def _counts(db, group_id: int) -> tuple[int, int]:
     media = db.query(func.count(MediaItem.id)).filter(MediaItem.group_id == group_id).scalar() or 0
     targets = db.query(func.count(Target.id)).filter(Target.group_id == group_id).scalar() or 0
@@ -172,12 +182,31 @@ def buttons_view(group_id: int):
         db.close()
 
     rows = group.buttons()
+    count = sum(len(r) for r in rows)
+    media = _media_count(group.id)
+
+    if media <= 1:
+        placement = (
+            "✅ Attached directly to the post — one message, buttons included."
+        )
+    elif group.buttons_attach is not False:
+        placement = (
+            f"✅ Attached to the post. Telegram allows no keyboard on an album, "
+            f"so the first item is sent on its own carrying the caption and "
+            f"buttons, and the other {media - 1} follow as an album beneath.\n\n"
+            f"For a <b>single</b> post with buttons, keep just one photo or "
+            f"video in the group."
+        )
+    else:
+        placement = (
+            "⚠️ Sent underneath in their own message, with the caption, because "
+            "<b>Buttons on media</b> is off and Telegram allows no keyboard on "
+            "an album."
+        )
+
     text = (
         f"🔘 <b>Buttons — {esc(group.label())}</b>\n\n"
-        f"{sum(len(r) for r in rows)} button(s) in {len(rows)} row(s).\n\n"
-        "Telegram does not allow keyboards on albums, so for a multi-item post "
-        "the buttons follow in their own message. A single-item post carries "
-        "them directly."
+        f"{count} button(s) in {len(rows)} row(s).\n\n{placement}"
     )
     return text, kb.buttons_menu(group)
 
@@ -234,6 +263,8 @@ def options_view(group_id: int):
         "🛡 <b>Protect</b> — block forwarding and saving.\n"
         "📌 <b>Pin</b> — pin the first message of each post.\n"
         "🔀 <b>Shuffle</b> — reorder media on every run.\n"
+        "🔘 <b>Buttons on media</b> — keep the keyboard attached to a media "
+        "post instead of a message below it.\n"
         "🔁 <b>Rotate targets</b> — one target per run instead of all.\n"
         "🔔 <b>Alerts</b> — DM you when a scheduled post fails.\n"
         "🧹 <b>Auto-delete</b> — remove the post after a delay.\n"

@@ -105,9 +105,14 @@ HELP = {
         "<code>Join | https://t.me/example\n"
         "Site | https://a.com ;; Help | https://b.com</code>\n\n"
         "One line is one row; <code>;;</code> splits a row into columns.\n\n"
-        "Telegram forbids keyboards on albums, so a multi-item post gets its "
-        "buttons in a short follow-up message. A single-item post carries them "
-        "directly."
+        "<b>Where the buttons land.</b> Telegram allows no keyboard on an "
+        "album, so the bot keeps them on a media post instead:\n\n"
+        "• <b>One photo or video</b> — caption and buttons ride on it. One "
+        "message, nothing underneath. This is the cleanest promo post.\n"
+        "• <b>Several items</b> — the first is sent alone with the caption and "
+        "buttons, the rest follow as an album.\n\n"
+        "Turning 🔘 <b>Buttons on media</b> off in Options keeps the album "
+        "whole and puts the caption and buttons in a message beneath it."
     ),
     "schedule": (
         "⏱ <b>Scheduling</b>\n\n"

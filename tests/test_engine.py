@@ -145,15 +145,50 @@ run(scheduling.post_group(gid))
 assert len(SENT) == 1 and SENT[0][0] == "photo" and SENT[0][3] == "Solo" and SENT[0][4] is True, SENT
 print("4 ok: single item carries caption and buttons directly")
 
-# --- 5. Album gets a follow-up message for its keyboard ---
+# --- 5. Two items plus buttons: keyboard rides on the first, never a bubble ---
 SENT.clear()
 gid = make_group(caption="Album", buttons_json='[[{"text":"Go","url":"https://e.com"}]]')
 add_media(gid, [("P1", "photo"), ("P2", "photo")])
 add_target(gid, "-100555")
 run(scheduling.post_group(gid))
+assert [s[0] for s in SENT] == ["photo", "photo"], SENT
+assert SENT[0][3] == "Album" and SENT[0][4] is True, SENT[0]
+assert SENT[1][3] is None and SENT[1][4] is False, SENT[1]
+assert not [s for s in SENT if s[0] == "message"], "no empty trailing bubble"
+print("5 ok: two items put caption+buttons on the first, no empty bubble")
+
+# --- 5b. Buttons stay on a media post when the group has several items -----
+SENT.clear()
+gid = make_group(caption="Promo", buttons_json='[[{"text":"Access","url":"https://e.com"}]]')
+add_media(gid, [("P1", "photo"), ("P2", "photo"), ("P3", "photo")])
+add_target(gid, "-100BTN")
+run(scheduling.post_group(gid))
+# First item alone carrying caption + keyboard, then the rest as an album.
+assert [s[0] for s in SENT] == ["photo", "album"], SENT
+assert SENT[0][2] == "P1" and SENT[0][3] == "Promo" and SENT[0][4] is True, SENT[0]
+assert len(SENT[1][2]) == 2, SENT[1]
+assert not [c for (_, _, c) in SENT[1][2] if c], "album must not repeat the caption"
+print("5b ok: multi-item group puts caption+buttons on a real media post")
+
+# --- 5c. Turning the option off keeps the album whole, no empty bubble -----
+db = SessionLocal(); db.get(ContentGroup, gid).buttons_attach = False; db.commit(); db.close()
+SENT.clear()
+run(scheduling.post_group(gid))
 assert [s[0] for s in SENT] == ["album", "message"], SENT
-assert SENT[1][4] is True
-print("5 ok: album keyboard arrives as a follow-up")
+assert len(SENT[0][2]) == 3, SENT[0]
+assert not [c for (_, _, c) in SENT[0][2] if c], "caption should ride with the buttons"
+assert SENT[1][2] == "Promo" and SENT[1][4] is True, SENT[1]
+print("5c ok: with the option off the caption travels with the buttons")
+
+# --- 5d. No buttons: album keeps its caption, nothing trails ---------------
+SENT.clear()
+gid = make_group(caption="Plain")
+add_media(gid, [("Q1", "photo"), ("Q2", "photo")])
+add_target(gid, "-100PLAIN")
+run(scheduling.post_group(gid))
+assert [s[0] for s in SENT] == ["album"], SENT
+assert [c for (_, _, c) in SENT[0][2] if c] == ["Plain"], SENT[0]
+print("5d ok: without buttons the album keeps its caption and sends alone")
 
 # --- 6. Fan-out to every enabled target, then rotation ---
 SENT.clear()

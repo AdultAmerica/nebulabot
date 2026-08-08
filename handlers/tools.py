@@ -34,7 +34,7 @@ EXPORT_FIELDS = (
     "schedule_kind", "interval_seconds", "cron_expr", "daily_times",
     "jitter_seconds", "timezone_name", "quiet_start", "quiet_end", "max_posts",
     "shuffle", "rotate_targets", "silent", "protect_content", "pin_post",
-    "delete_after", "notify_owner",
+    "delete_after", "notify_owner", "buttons_attach",
 )
 
 
